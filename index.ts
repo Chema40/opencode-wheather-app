@@ -78,6 +78,24 @@ const WEATHER_CODES: Record<number, string> = {
 
 const rl = createInterface({ input, output });
 
+const shouldUseColors =
+  process.env.NO_COLOR !== "1" && (Boolean(output.isTTY) || process.env.FORCE_COLOR === "1");
+
+const color = {
+  cyan(text: string) {
+    return shouldUseColors ? `\u001b[36m${text}\u001b[0m` : text;
+  },
+  yellow(text: string) {
+    return shouldUseColors ? `\u001b[33m${text}\u001b[0m` : text;
+  },
+  green(text: string) {
+    return shouldUseColors ? `\u001b[32m${text}\u001b[0m` : text;
+  },
+  red(text: string) {
+    return shouldUseColors ? `\u001b[31m${text}\u001b[0m` : text;
+  },
+};
+
 function normalizeCityLabel(city: Pick<CityRecord, "name" | "admin1" | "country">) {
   return [city.name, city.admin1, city.country].filter(Boolean).join(", ");
 }
@@ -164,19 +182,19 @@ async function pause() {
 
 function printMenu(state: AppState) {
   console.clear();
-  console.log("════════════════════════════════════════");
-  console.log("         WEATHER CLI");
-  console.log("════════════════════════════════════════");
-  console.log(`  Ciudades guardadas: ${state.cities.length}`);
-  console.log(`  Ajustes (${unitSymbol(state.temperatureUnit)})`);
-  console.log("  1. Clima de ciudad default");
-  console.log(`  2. Clima de todas las ciudades (${state.cities.length})`);
-  console.log("  3. Buscar y agregar ciudad");
-  console.log("  4. Eliminar ciudad");
-  console.log("  5. Establecer ciudad default");
-  console.log("  8. Ajustes");
-  console.log("  9. Salir");
-  console.log("════════════════════════════════════════");
+  console.log(color.cyan("════════════════════════════════════════"));
+  console.log(color.cyan("         WEATHER CLI"));
+  console.log(color.cyan("════════════════════════════════════════"));
+  console.log(color.cyan(`  Ciudades guardadas: ${state.cities.length}`));
+  console.log(color.cyan(`  Ajustes (${unitSymbol(state.temperatureUnit)})`));
+  console.log(color.cyan("  1. Clima de ciudad default"));
+  console.log(color.cyan(`  2. Clima de todas las ciudades (${state.cities.length})`));
+  console.log(color.cyan("  3. Buscar y agregar ciudad"));
+  console.log(color.cyan("  4. Eliminar ciudad"));
+  console.log(color.cyan("  5. Establecer ciudad default"));
+  console.log(color.cyan("  8. Ajustes"));
+  console.log(color.cyan("  9. Salir"));
+  console.log(color.cyan("════════════════════════════════════════"));
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -244,19 +262,22 @@ async function showWeather(city: CityRecord, state: AppState) {
     const current = await fetchWeather(city, state.temperatureUnit);
 
     if (!current) {
-      console.log("  No se pudo obtener el clima actual.");
+      console.log(color.red("  No se pudo obtener el clima actual."));
       return;
     }
 
-    console.log(`  Temperatura: ${current.temperature_2m ?? "N/D"} ${unitSymbol(state.temperatureUnit)}`);
+    console.log(
+      `  Temperatura: ${color.yellow(`${current.temperature_2m ?? "N/D"} ${unitSymbol(state.temperatureUnit)}`)}`,
+    );
     console.log(
       `  Sensación térmica: ${current.apparent_temperature ?? "N/D"} ${unitSymbol(state.temperatureUnit)}`,
     );
     console.log(`  Viento: ${current.wind_speed_10m ?? "N/D"} km/h`);
     console.log(`  Estado: ${weatherLabel(current.weather_code)}`);
     console.log(`  Hora: ${formatCurrentTime(current.time)}`);
+    console.log(color.green("  OK"));
   } catch (error) {
-    console.log(`  Error: ${error instanceof Error ? error.message : String(error)}`);
+    console.log(color.red(`  Error: ${error instanceof Error ? error.message : String(error)}`));
   }
 }
 
@@ -358,15 +379,15 @@ async function addCity(state: AppState) {
     );
 
     if (alreadySaved) {
-      console.log(`\n${normalizeCityLabel(city)} ya está guardada.`);
+      console.log(color.yellow(`\n${normalizeCityLabel(city)} ya está guardada.`));
       return;
     }
 
     state.cities.push(city);
     saveState(state);
-    console.log(`\nCiudad agregada: ${normalizeCityLabel(city)}`);
+    console.log(color.green(`\nCiudad agregada: ${normalizeCityLabel(city)}`));
   } catch (error) {
-    console.log(`\nError al buscar la ciudad: ${error instanceof Error ? error.message : String(error)}`);
+    console.log(color.red(`\nError al buscar la ciudad: ${error instanceof Error ? error.message : String(error)}`));
   }
 }
 
@@ -390,7 +411,7 @@ async function removeCity(state: AppState) {
   }
 
   saveState(state);
-  console.log(`\nCiudad eliminada: ${normalizeCityLabel(chosen)}`);
+  console.log(color.green(`\nCiudad eliminada: ${normalizeCityLabel(chosen)}`));
 }
 
 async function setDefaultCity(state: AppState) {
@@ -408,11 +429,11 @@ async function setDefaultCity(state: AppState) {
 
   state.defaultCityId = chosen.id;
   saveState(state);
-  console.log(`\nCiudad default establecida: ${normalizeCityLabel(chosen)}`);
+  console.log(color.green(`\nCiudad default establecida: ${normalizeCityLabel(chosen)}`));
 }
 
 async function updateSettings(state: AppState) {
-  console.log(`\nUnidad actual: ${unitSymbol(state.temperatureUnit)}`);
+  console.log(color.cyan(`\nUnidad actual: ${unitSymbol(state.temperatureUnit)}`));
   console.log("  1. Celsius");
   console.log("  2. Fahrenheit");
 
@@ -423,12 +444,12 @@ async function updateSettings(state: AppState) {
   } else if (choice === "2") {
     state.temperatureUnit = "fahrenheit";
   } else {
-    console.log("\nOpción inválida.");
+    console.log(color.red("\nOpción inválida."));
     return;
   }
 
   saveState(state);
-  console.log(`\nAjuste guardado: ${unitSymbol(state.temperatureUnit)}`);
+  console.log(color.green(`\nAjuste guardado: ${unitSymbol(state.temperatureUnit)}`));
 }
 
 async function main() {
@@ -452,10 +473,10 @@ async function main() {
       } else if (choice === "8") {
         await updateSettings(state);
       } else if (choice === "9") {
-        console.log("\nHasta luego.");
+        console.log(color.cyan("\nHasta luego."));
         break;
       } else {
-        console.log("\nOpción inválida.");
+        console.log(color.red("\nOpción inválida."));
       }
 
       await pause();
