@@ -41,8 +41,18 @@ type CurrentWeather = {
   time?: string;
 };
 
+type DailyWeather = {
+  time?: string[];
+  weather_code?: number[];
+  temperature_2m_max?: number[];
+  temperature_2m_min?: number[];
+  precipitation_sum?: number[];
+  wind_speed_10m_max?: number[];
+};
+
 type ForecastResponse = {
   current?: CurrentWeather;
+  daily?: DailyWeather;
 };
 
 const STATE_FILE = join(process.cwd(), ".weather-cli-state.json");
@@ -188,7 +198,7 @@ function printMenu(state: AppState) {
   console.log(color.cyan(`  Ciudades guardadas: ${state.cities.length}`));
   console.log(color.cyan(`  Ajustes (${unitSymbol(state.temperatureUnit)})`));
   console.log(color.cyan("  1. Clima de ciudad default"));
-  console.log(color.cyan(`  2. Clima de todas las ciudades (${state.cities.length})`));
+  console.log(color.cyan(`  2. Clima y pronóstico de todas las ciudades (${state.cities.length})`));
   console.log(color.cyan("  3. Buscar y agregar ciudad"));
   console.log(color.cyan("  4. Eliminar ciudad"));
   console.log(color.cyan("  5. Establecer ciudad default"));
@@ -222,7 +232,7 @@ async function searchCities(name: string) {
   return data.results ?? [];
 }
 
-async function fetchWeather(city: CityRecord, unit: TemperatureUnit) {
+async function fetchForecast(city: CityRecord, unit: TemperatureUnit, includeDaily = false) {
   const params = new URLSearchParams({
     latitude: String(city.latitude),
     longitude: String(city.longitude),
@@ -231,11 +241,19 @@ async function fetchWeather(city: CityRecord, unit: TemperatureUnit) {
     temperature_unit: unit,
   });
 
+  if (includeDaily) {
+    params.set(
+      "daily",
+      "weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max",
+    );
+    params.set("forecast_days", "7");
+  }
+
   const data = await fetchJson<ForecastResponse>(
     `https://api.open-meteo.com/v1/forecast?${params}`,
   );
 
-  return data.current ?? null;
+  return data;
 }
 
 function formatCurrentTime(time?: string) {
@@ -255,11 +273,54 @@ function formatCurrentTime(time?: string) {
   }).format(date);
 }
 
-async function showWeather(city: CityRecord, state: AppState) {
+function formatForecastDay(time?: string) {
+  if (!time) {
+    return "Fecha no disponible";
+  }
+
+  const date = new Date(time);
+
+  if (Number.isNaN(date.getTime())) {
+    return time;
+  }
+
+  return new Intl.DateTimeFormat("es-ES", {
+    weekday: "short",
+    day: "2-digit",
+    month: "short",
+    timeZone: "UTC",
+  }).format(date);
+}
+
+function showForecast(daily: DailyWeather, unit: TemperatureUnit) {
+  const days = daily.time ?? [];
+
+  if (days.length === 0) {
+    console.log(color.yellow("  Pronóstico de 7 días no disponible."));
+    return;
+  }
+
+  console.log(color.cyan("  Pronóstico de 7 días:"));
+
+  days.slice(0, 7).forEach((day, index) => {
+    const min = daily.temperature_2m_min?.[index];
+    const max = daily.temperature_2m_max?.[index];
+    const precipitation = daily.precipitation_sum?.[index];
+    const wind = daily.wind_speed_10m_max?.[index];
+    const code = daily.weather_code?.[index];
+
+    console.log(
+      `    ${formatForecastDay(day)}: ${weatherLabel(code)} | ${min ?? "N/D"}${unitSymbol(unit)} / ${max ?? "N/D"}${unitSymbol(unit)} | Lluvia: ${precipitation ?? "N/D"} mm | Viento: ${wind ?? "N/D"} km/h`,
+    );
+  });
+}
+
+async function showWeather(city: CityRecord, state: AppState, includeForecast = false) {
   console.log(`\n${normalizeCityLabel(city)}`);
 
   try {
-    const current = await fetchWeather(city, state.temperatureUnit);
+    const forecast = await fetchForecast(city, state.temperatureUnit, includeForecast);
+    const current = forecast.current ?? null;
 
     if (!current) {
       console.log(color.red("  No se pudo obtener el clima actual."));
@@ -275,6 +336,13 @@ async function showWeather(city: CityRecord, state: AppState) {
     console.log(`  Viento: ${current.wind_speed_10m ?? "N/D"} km/h`);
     console.log(`  Estado: ${weatherLabel(current.weather_code)}`);
     console.log(`  Hora: ${formatCurrentTime(current.time)}`);
+    if (includeForecast) {
+      if (forecast.daily) {
+        showForecast(forecast.daily, state.temperatureUnit);
+      } else {
+        console.log(color.yellow("  Pronóstico de 7 días no disponible."));
+      }
+    }
     console.log(color.green("  OK"));
   } catch (error) {
     console.log(color.red(`  Error: ${error instanceof Error ? error.message : String(error)}`));
@@ -325,7 +393,7 @@ async function showAllCitiesWeather(state: AppState) {
   }
 
   for (const city of state.cities) {
-    await showWeather(city, state);
+    await showWeather(city, state, true);
   }
 }
 
