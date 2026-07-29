@@ -1,6 +1,9 @@
 # dependencies (bun install)
 node_modules
 
+#build
+wheather
+
 # output
 out
 dist
@@ -26,6 +29,8 @@ report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
 .eslintcache
 .cache
 *.tsbuildinfo
+.weather-cli-state.json
+weather
 
 # IntelliJ based IDEs
 .idea
