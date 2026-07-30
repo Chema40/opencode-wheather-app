@@ -10,14 +10,41 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  version:
     runs-on: ubuntu-latest
-
+    outputs:
+      version: ${{ steps.read-version.outputs.version }}
+      tag: ${{ steps.read-version.outputs.tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Read version
+        id: read-version
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+          - os: windows-latest
+          - os: macos-latest
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -25,39 +52,79 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Read version
-        id: version
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
-
       - name: Build binary
         run: bun run build
 
-      - name: Verify binary
+      - name: Package binary
+        id: package
         run: |
-          test -f weather
-          chmod +x weather
-          ls -l weather
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
 
-      - name: Create git tag
+          const assetName = `weather-${process.env.RUNNER_OS.toLowerCase()}-${process.arch === 'arm64' ? 'arm64' : 'x64'}${process.platform === 'win32' ? '.exe' : ''}`;
+          const source = ['weather', 'weather.exe'].find((file) => fs.existsSync(file));
+
+          if (!source) {
+            throw new Error('Binary not found after build');
+          }
+
+          fs.mkdirSync('release-assets', { recursive: true });
+
+          const target = path.join('release-assets', assetName);
+          fs.copyFileSync(source, target);
+
+          if (process.platform !== 'win32') {
+            fs.chmodSync(target, 0o755);
+          }
+
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `asset_name=${assetName}\n`);
+          NODE
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.package.outputs.asset_name }}
+          path: release-assets/${{ steps.package.outputs.asset_name }}
+          if-no-files-found: error
+
+  release:
+    needs:
+      - version
+      - build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create or update tag
         run: |
           git fetch --tags --force
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag -f "${{ steps.version.outputs.tag }}"
-          git push --force origin "refs/tags/${{ steps.version.outputs.tag }}"
+          git tag -f "${{ needs.version.outputs.tag }}"
+          git push --force origin "refs/tags/${{ needs.version.outputs.tag }}"
 
       - name: Publish GitHub Release
         uses: actions/github-script@v7
         with:
           script: |
             const fs = require('node:fs');
+            const path = require('node:path');
 
-            const tag = '${{ steps.version.outputs.tag }}';
-            const assetPath = 'weather';
-            const assetName = 'weather';
+            const tag = '${{ needs.version.outputs.tag }}';
+            const assetsDir = 'release-assets';
 
             let release;
 
@@ -86,20 +153,24 @@ jobs:
               release_id: releaseId,
             });
 
-            const previousAsset = existingAssets.data.find((asset) => asset.name === assetName);
+            const assetFiles = fs.readdirSync(assetsDir).filter((file) => fs.statSync(path.join(assetsDir, file)).isFile());
 
-            if (previousAsset) {
-              await github.rest.repos.deleteReleaseAsset({
+            for (const file of assetFiles) {
+              const existingAsset = existingAssets.data.find((asset) => asset.name === file);
+
+              if (existingAsset) {
+                await github.rest.repos.deleteReleaseAsset({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  asset_id: existingAsset.id,
+                });
+              }
+
+              await github.rest.repos.uploadReleaseAsset({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
-                asset_id: previousAsset.id,
+                release_id: releaseId,
+                name: file,
+                data: fs.readFileSync(path.join(assetsDir, file)),
               });
             }
-
-            await github.rest.repos.uploadReleaseAsset({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              release_id: releaseId,
-              name: assetName,
-              data: fs.readFileSync(assetPath),
-            });
