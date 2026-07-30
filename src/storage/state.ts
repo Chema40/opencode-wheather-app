@@ -1,18 +1,25 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { DEFAULT_STATE, STATE_FILE } from "../utils/constants.ts";
+import { join } from "node:path";
+import { DEFAULT_STATE } from "../utils/constants.ts";
 import type { AppState, CityRecord, TemperatureUnit } from "../types/weather.ts";
+
+function getStateFile() {
+  return join(process.cwd(), ".weather-cli-state.json");
+}
 
 function isTemperatureUnit(value: unknown): value is TemperatureUnit {
   return value === "celsius" || value === "fahrenheit";
 }
 
 export function loadState(): AppState {
-  if (!existsSync(STATE_FILE)) {
+  const stateFile = getStateFile();
+
+  if (!existsSync(stateFile)) {
     return { ...DEFAULT_STATE };
   }
 
   try {
-    const raw = JSON.parse(readFileSync(STATE_FILE, "utf8")) as Partial<AppState>;
+    const raw = JSON.parse(readFileSync(stateFile, "utf8")) as Partial<AppState>;
     const cities = Array.isArray(raw.cities)
       ? raw.cities
           .map((city): CityRecord | null => {
@@ -55,5 +62,5 @@ export function loadState(): AppState {
 }
 
 export function saveState(state: AppState) {
-  writeFileSync(STATE_FILE, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+  writeFileSync(getStateFile(), `${JSON.stringify(state, null, 2)}\n`, "utf8");
 }

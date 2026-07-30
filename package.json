@@ -7,6 +7,8 @@
     "@types/bun": "latest"
   },
   "scripts": {
+    "test": "bun test tests",
+    "prebuild": "bun run test",
     "build": "bun build --compile src/index.ts --outfile weather",
     "start": "bun run src/index.ts",
     "dev": "bun run src/index.ts --watch"
