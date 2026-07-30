@@ -35,18 +35,19 @@ jobs:
       - name: Build binary
         run: bun run build
 
+      - name: Verify binary
+        run: |
+          test -f weather
+          chmod +x weather
+          ls -l weather
+
       - name: Create git tag
         run: |
           git fetch --tags --force
-          if git rev-parse "${{ steps.version.outputs.tag }}" >/dev/null 2>&1; then
-            echo "Tag ${{ steps.version.outputs.tag }} already exists."
-            exit 0
-          fi
-
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git tag "${{ steps.version.outputs.tag }}"
-          git push origin "${{ steps.version.outputs.tag }}"
+          git tag -f "${{ steps.version.outputs.tag }}"
+          git push --force origin "refs/tags/${{ steps.version.outputs.tag }}"
 
       - name: Publish GitHub Release
         uses: actions/github-script@v7
